@@ -13,7 +13,7 @@ dependencies:
   eth_sig_util: ^0.0.9
   flutter:
     sdk: flutter
-  freezed_annotation: ^2.4.4
+  freezed_annotation: ^3.0.0
   json_annotation: ^4.9.0
   plugin_platform_interface: ^2.0.2
 
@@ -23,7 +23,7 @@ dev_dependencies:
   flutter_lints: ^4.0.0
   flutter_test:
     sdk: flutter
-  freezed: ^2.5.7
+  freezed: ^3.0.0
   json_serializable: ^6.9.0
 
 # For information on the generic Dart part of this file, see the
