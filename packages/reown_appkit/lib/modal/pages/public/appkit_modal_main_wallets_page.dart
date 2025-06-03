@@ -3,7 +3,6 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
 
-import 'package:reown_appkit/modal/pages/about_wallets.dart';
 import 'package:reown_appkit/modal/pages/connect_wallet_page.dart';
 import 'package:reown_appkit/modal/services/analytics_service/models/analytics_event.dart';
 import 'package:reown_appkit/modal/services/explorer_service/i_explorer_service.dart';
@@ -18,7 +17,6 @@ import 'package:reown_appkit/modal/widgets/modal_provider.dart';
 import 'package:reown_appkit/modal/widgets/lists/list_items/all_wallets_item.dart';
 import 'package:reown_appkit/modal/widgets/lists/list_items/wallet_item_chip.dart';
 import 'package:reown_appkit/modal/widgets/lists/wallets_list.dart';
-import 'package:reown_appkit/modal/widgets/navigation/navbar_action_button.dart';
 import 'package:reown_appkit/modal/widgets/value_listenable_builders/explorer_service_items_listener.dart';
 import 'package:reown_appkit/modal/widgets/navigation/navbar.dart';
 import 'package:reown_appkit/reown_appkit.dart';
@@ -85,16 +83,8 @@ class _AppKitModalMainWalletsPageState
         ? (kListItemHeight * 6)
         : ResponsiveData.maxHeightOf(context);
 
-    final isSignIn = _emailEnabled || _socialsEnabled;
     return ModalNavbar(
-      title: isSignIn ? 'Sign in' : 'Connect wallet',
-      leftAction: NavbarActionButton(
-        asset: 'lib/modal/assets/icons/help.svg',
-        action: () => _widgetStack.push(
-          const AboutWallets(),
-          event: ClickWalletHelpEvent(),
-        ),
-      ),
+      title: 'Connect wallet',
       safeAreaLeft: true,
       safeAreaRight: true,
       body: ExplorerServiceItemsListener(
