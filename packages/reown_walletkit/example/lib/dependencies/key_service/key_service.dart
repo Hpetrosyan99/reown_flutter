@@ -1,12 +1,15 @@
 import 'dart:convert';
 import 'dart:developer' as dev;
 
+import 'package:bech32/bech32.dart';
 import 'package:convert/convert.dart';
 import 'package:crypto/crypto.dart';
 import 'package:eth_sig_util/util/utils.dart';
 import 'package:flutter/foundation.dart';
+import 'package:pointycastle/digests/ripemd160.dart';
 import 'package:pointycastle/digests/keccak.dart';
 import 'package:pointycastle/ecc/curves/secp256k1.dart';
+import 'package:polkadart_keyring/polkadart_keyring.dart' as keyring;
 import 'package:reown_walletkit/reown_walletkit.dart';
 import 'package:reown_walletkit_wallet/dependencies/bip32/bip32_base.dart';
 import 'package:reown_walletkit_wallet/dependencies/key_service/chain_key.dart';
@@ -151,17 +154,21 @@ class KeyService extends IKeyService {
 
     final eip155ChainKey = _evmChainKey(mnemonic);
     final solanaChainKey = await _solanaChainKey(mnemonic);
-    final polkadotChainKey = _polkadotChainKey(mnemonic);
+    final polkadotChainKey = await _polkadotChainKey(mnemonic);
+    final polkadotTestChainKey = await _polkadotTestChainKey(mnemonic);
     final kadenaChainKey = _kadenaChainKey(mnemonic);
     final tronChainKey = _tronChainKey(mnemonic);
+    final cosmosChainKey = _cosmosChainKey(mnemonic);
     // final bitcoinChainKeys = await _bitcoinChainKey(mnemonic);
 
     _keys = List<ChainKey>.from([
       eip155ChainKey,
       solanaChainKey,
       polkadotChainKey,
+      polkadotTestChainKey,
       kadenaChainKey,
       tronChainKey,
+      cosmosChainKey,
     ]);
 
     await _saveKeys();
@@ -224,62 +231,49 @@ class KeyService extends IKeyService {
     );
   }
 
-  ChainKey _polkadotChainKey(String mnemonic) {
-    final seed = bip39.mnemonicToSeed(mnemonic);
-    final root = bip32.BIP32.fromSeed(seed);
-    final polkadotNode = root.derivePath("m/44'/354'/0'/0'");
+  Future<ChainKey> _polkadotChainKey(String mnemonic) async {
+    final dotkeyPair = await keyring.Keyring().fromMnemonic(
+      mnemonic,
+      keyPairType: keyring.KeyPairType.sr25519,
+    );
+    // adjust the default ss58Format for Polkadot https://github.com/paritytech/ss58-registry/blob/main/ss58-registry.json
+    dotkeyPair.ss58Format = 0;
 
-    // Step 4: Extract Private and Public Keys
-    Uint8List privateKey = polkadotNode.privateKey!;
-    Uint8List publicKey = polkadotNode.publicKey;
-
-    // Step 5: Manually Encode SS58 Address
-    final ss58Address = _encodeSS58(publicKey, prefix: 0); // 0 = Polkadot
+    final publicKey = bytesToHex(
+      dotkeyPair.publicKey.bytes,
+      include0x: true,
+    );
 
     return ChainKey(
-      chains: ChainsDataList.polkadotChains.map((e) => e.chainId).toList(),
-      privateKey: base58.encode(privateKey),
-      publicKey: base58.encode(publicKey),
-      address: ss58Address,
+      chains: ChainsDataList.polkadotChains
+          .where((c) => !c.isTestnet)
+          .map((e) => e.chainId)
+          .toList(),
+      privateKey: mnemonic,
+      publicKey: publicKey,
+      address: dotkeyPair.address,
       namespace: 'polkadot',
     );
   }
 
-  // Function to encode a public key into an SS58 address (Pure Dart Implementation)
-  String _encodeSS58(Uint8List publicKey, {int prefix = 0}) {
-    // Step 1: Prefix + Public Key
-    final List<int> data = [prefix, ...publicKey];
+  Future<ChainKey> _polkadotTestChainKey(String mnemonic) async {
+    final dotkeyPair = await keyring.Keyring().fromMnemonic(mnemonic);
 
-    // Step 2: Compute the Blake2b hash manually (checksum)
-    final checksum = _blake2bMini(Uint8List.fromList(data));
-    final List<int> checksumPrefix = checksum.sublist(0, 2); // First 2 bytes
+    final publicKey = bytesToHex(
+      dotkeyPair.publicKey.bytes,
+      include0x: true,
+    );
 
-    // Step 3: Concatenate Data + Checksum
-    final List<int> addressBytes = [...data, ...checksumPrefix];
-
-    // Step 4: Encode in Base58
-    return base58.encode(Uint8List.fromList(addressBytes));
-  }
-
-  // Minimal Blake2b Implementation in Pure Dart
-  Uint8List _blake2bMini(Uint8List input) {
-    final h = utf8.encode('SS58PRE'); // Prefix for Blake2b
-    final combined = Uint8List.fromList([...h, ...input]);
-
-    // Using SHA-256 as a simplified Blake2b substitute
-    final hash = _sha256Hash(combined);
-    return Uint8List.fromList(hash);
-  }
-
-  // SHA-256 hash function (acts as a placeholder for Blake2b)
-  List<int> _sha256Hash(Uint8List data) {
-    int hash = 0;
-    for (int byte in data) {
-      hash = (hash * 31 + byte) & 0xFFFFFFFF; // Simple hash function
-    }
-    final hashBytes = ByteData(32);
-    hashBytes.setUint32(0, hash, Endian.little);
-    return hashBytes.buffer.asUint8List();
+    return ChainKey(
+      chains: ChainsDataList.polkadotChains
+          .where((c) => c.isTestnet)
+          .map((e) => e.chainId)
+          .toList(),
+      privateKey: mnemonic,
+      publicKey: publicKey,
+      address: dotkeyPair.address,
+      namespace: 'polkadot_test',
+    );
   }
 
   ChainKey _kadenaChainKey(String mnemonic) {
@@ -303,6 +297,55 @@ class KeyService extends IKeyService {
       address: publicKeyHex,
       namespace: 'kadena',
     );
+  }
+
+  ChainKey _cosmosChainKey(String mnemonic) {
+    final seed = bip39.mnemonicToSeed(mnemonic);
+    final root = bip32.BIP32.fromSeed(seed);
+    final child = root.derivePath("m/44'/118'/0'/0/0");
+
+    // Step 4: Extract Private and Public Keys
+    Uint8List privateKey = child.privateKey!;
+    Uint8List publicKey = child.publicKey;
+
+    // 1. SHA256
+    final sha256 = SHA256Digest().process(publicKey);
+    // 2. RIPEMD160
+    final ripemd160 = RIPEMD160Digest().process(sha256);
+    // 3. Bech32 encode
+    final words = _convertBits(ripemd160, 8, 5, true);
+    final bech32Data = Bech32('cosmos', words);
+    final address = bech32.encode(bech32Data);
+
+    return ChainKey(
+      chains: ChainsDataList.cosmosChains.map((e) => e.chainId).toList(),
+      privateKey: base64.encode(privateKey),
+      publicKey: base64.encode(publicKey),
+      address: address,
+      namespace: 'cosmos',
+    );
+  }
+
+  List<int> _convertBits(Uint8List data, int fromBits, int toBits, bool pad) {
+    int acc = 0;
+    int bits = 0;
+    final maxv = (1 << toBits) - 1;
+    final result = <int>[];
+
+    for (final byte in data) {
+      acc = (acc << fromBits) | byte;
+      bits += fromBits;
+      while (bits >= toBits) {
+        bits -= toBits;
+        result.add((acc >> bits) & maxv);
+      }
+    }
+
+    if (pad && bits > 0) {
+      result.add((acc << (toBits - bits)) & maxv);
+    }
+
+    return result;
   }
 
   ChainKey _tronChainKey(String mnemonic) {

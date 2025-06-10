@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
+import 'dart:typed_data';
 
+import 'package:convert/convert.dart';
 import 'package:event/event.dart';
 import 'package:reown_core/models/tvf_data.dart';
 import 'package:reown_core/pairing/utils/json_rpc_utils.dart';
@@ -2832,18 +2834,16 @@ class ReownSign implements IReownSign {
   /// collection during request from dapp
   ///
   TVFData? _collectRequestTVF(int id, WcSessionRequestRequest request) {
-    // check if the rpc request is on the tvf supported methods list
     final method = request.request.method;
-    if (!TVFData.tvfRequestMethods.contains(method)) {
-      return null;
-    }
+    // if (!TVFData.tvfRequestMethods.contains(method)) {
+    //   return null;
+    // }
     final params = request.request.params;
 
     // params to collect
     final rpcMethods = List<String>.from([method]);
     final chainId = request.chainId;
     List<String>? contractAddresses;
-
     final contractAddress = _collectContractAddressIfNeeded(chainId, params);
     if (contractAddress != null) {
       contractAddresses = [contractAddress];
@@ -2853,6 +2853,7 @@ class ReownSign implements IReownSign {
       rpcMethods: rpcMethods,
       chainId: chainId,
       contractAddresses: contractAddresses,
+      requestParams: request.request.params,
     );
 
     // pendingTVFRequests is useful for WalletKit _onSessionRequest method
@@ -2869,7 +2870,7 @@ class ReownSign implements IReownSign {
       try {
         final paramsMap = (params as List).first as Map<String, dynamic>;
         final inputData = (paramsMap['input'] ?? paramsMap['data'])!;
-        if (ReownCoreUtils.isValidContractData(inputData)) {
+        if (EvmChainUtils.isValidContractData(inputData)) {
           final contractAddress = paramsMap['to'] as String?;
           return contractAddress;
         }
@@ -2926,7 +2927,7 @@ class ReownSign implements IReownSign {
           if (transactions != null) {
             // Decode transactions and extract signature to send as TVF data
             final signatures = (transactions as List).map((encodedTx) {
-              return ReownCoreUtils.extractSolanaSignature(encodedTx);
+              return SolanaChainUtils.extractSolanaSignature(encodedTx);
             }).toList();
             return signatures;
           }
@@ -2960,6 +2961,15 @@ class ReownSign implements IReownSign {
       case 'sui':
         try {
           final result = (response.result as Map<String, dynamic>);
+          // if sui_signAndExecuteTransaction then it'll contain digest
+          final digest = ReownCoreUtils.recursiveSearchForMapKey(
+            result,
+            'digest',
+          );
+          if (digest != null) {
+            return List<String>.from([digest]);
+          }
+          // if sui_signTransaction the it'll contain signature and transactionBytes
           final signature = ReownCoreUtils.recursiveSearchForMapKey(
             result,
             'signature',
@@ -2969,10 +2979,12 @@ class ReownSign implements IReownSign {
               result,
               'transactionBytes',
             );
-            final computedHash = SuiChainUtils.getSuiDigestFromEncodedTx(
-              transactionBytes,
-            );
-            return List<String>.from([computedHash]);
+            if (transactionBytes != null) {
+              final computedHash = SuiChainUtils.getSuiDigestFromEncodedTx(
+                transactionBytes,
+              );
+              return List<String>.from([computedHash]);
+            }
           }
         } catch (e) {
           core.logger.e('[$runtimeType] _collectHashes: sui, $e');
@@ -3034,6 +3046,64 @@ class ReownSign implements IReownSign {
           return <String>[hash];
         } catch (e) {
           core.logger.e('[$runtimeType] _collectHashes: near, $e');
+        }
+        return null;
+      case 'polkadot':
+        try {
+          final result = (response.result as Map<String, dynamic>);
+          final signature = ReownCoreUtils.recursiveSearchForMapKey(
+            result,
+            'signature',
+          );
+          if (signature != null) {
+            final id = response.id;
+            final requestParams = pendingTVFRequests[id]!.requestParams;
+            final params = requestParams as Map<String, dynamic>;
+            final payload = ReownCoreUtils.recursiveSearchForMapKey(
+              params,
+              'transactionPayload',
+            );
+            final ss58Address = ReownCoreUtils.recursiveSearchForMapKey(
+              params,
+              'address',
+            );
+            final publicKey = PolkadotChainUtils.ss58AddressToPublicKey(
+              ss58Address,
+            );
+            final extrinsic = PolkadotChainUtils.addSignatureToExtrinsic(
+              publicKey: Uint8List.fromList(publicKey),
+              hexSignature: signature,
+              payload: payload,
+            );
+            final signedHex = hex.encode(extrinsic);
+            final hash = PolkadotChainUtils.deriveExtrinsicHash(signedHex);
+            return List<String>.from([hash]);
+          }
+        } catch (e) {
+          core.logger.e('[$runtimeType] _collectHashes: polkadot, $e');
+        }
+        return null;
+      case 'cosmos':
+        final result = (response.result as Map<String, dynamic>);
+        final signature = ReownCoreUtils.recursiveSearchForMapKey(
+          result,
+          'signature',
+        );
+        if (signature != null) {
+          final bodyBytes = ReownCoreUtils.recursiveSearchForMapKey(
+            result,
+            'bodyBytes',
+          );
+          final authInfoBytes = ReownCoreUtils.recursiveSearchForMapKey(
+            result,
+            'authInfoBytes',
+          );
+          final hash = CosmosUtils.computeTxHash(
+            bodyBytesBase64: bodyBytes,
+            authInfoBytesBase64: authInfoBytes,
+            signatureBase64: signature['signature'],
+          );
+          return List<String>.from([hash]);
         }
         return null;
       default:

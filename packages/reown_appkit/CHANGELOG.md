@@ -1,3 +1,11 @@
+## 1.4.5
+
+- General security improvements and verify API V4 readiness
+
+## 1.4.4
+
+- Fix an error where transaction data was missing 0x prefix
+
 ## 1.4.3+1
 
 - Custom Wallets!
