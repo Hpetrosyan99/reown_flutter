@@ -21,7 +21,7 @@ dependencies:
   flutter:
     sdk: flutter
   flutter_svg: ^2.0.16
-  get_it: ^8.0.3
+  get_it: ^8.0.2
   http: ^1.2.2
   json_annotation: ^4.9.0
   kadena_dart_sdk: ^2.3.2
